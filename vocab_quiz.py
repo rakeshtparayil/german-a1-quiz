@@ -1338,6 +1338,13 @@ def init_session():
         "tp_user_input": "",
         "tp_deck": [], "tp_round": 1,
         "tp_active_chapter": None, "tp_round_complete": False,
+        # listening tab (audio only → type English)
+        "ls_score": 0, "ls_total": 0,
+        "ls_answered": False,
+        "ls_german": None, "ls_english": None,
+        "ls_user_input": "",
+        "ls_deck": [], "ls_round": 1,
+        "ls_active_chapter": None, "ls_round_complete": False,
         # navigation
         "active_tab": "📋 Vokabelquiz",
     }
@@ -1430,6 +1437,28 @@ def load_tp(pdf_pool, chapter):
     st.session_state.tp_user_input = ""
 
 
+def load_ls(pdf_pool, chapter):
+    if chapter != st.session_state.ls_active_chapter:
+        st.session_state.ls_deck = build_deck(pdf_pool)
+        st.session_state.ls_round = 1
+        st.session_state.ls_active_chapter = chapter
+        st.session_state.ls_round_complete = False
+        st.session_state.ls_german = None
+    if st.session_state.ls_german is not None:
+        return
+    if not st.session_state.ls_deck:
+        st.session_state.ls_deck = build_deck(pdf_pool)
+        st.session_state.ls_round += 1
+        st.session_state.ls_round_complete = True
+    else:
+        st.session_state.ls_round_complete = False
+    word = st.session_state.ls_deck.pop()
+    st.session_state.ls_german = word
+    st.session_state.ls_english = pdf_pool[word]
+    st.session_state.ls_answered = False
+    st.session_state.ls_user_input = ""
+
+
 # ── App ───────────────────────────────────────────────────────────────────────
 
 st.set_page_config(page_title="telc A1 Vokabelquiz", page_icon="🇩🇪", layout="centered")
@@ -1445,7 +1474,7 @@ with st.sidebar:
     st.divider()
     active_tab = st.radio(
         "Modus",
-        ["📋 Vokabelquiz", "🔤 Wörter sortieren", "✏️ Grammatik tippen", "🖊️ Deutsch → Englisch"],
+        ["📋 Vokabelquiz", "🔤 Wörter sortieren", "✏️ Grammatik tippen", "🖊️ Deutsch → Englisch", "🎧 Hören & Schreiben"],
         key="active_tab",
     )
 
@@ -1902,3 +1931,120 @@ if active_tab == "🖊️ Deutsch → Englisch":
                 f"</div>",
                 unsafe_allow_html=True,
             )
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 5 — Listening: hear German audio only → type English translation
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+if active_tab == "🎧 Hören & Schreiben":
+
+    ls_chapter = st.selectbox(
+        "Thema wählen",
+        PDF_CHAPTER_NAMES,
+        key="ls_chapter_select",
+    )
+
+    ls_pool = get_pdf_pool(ls_chapter)
+    load_ls(ls_pool, ls_chapter)
+
+    pool_size = len(ls_pool)
+    ls_seen = pool_size - len(st.session_state.ls_deck)
+    c1, c2 = st.columns(2)
+    c1.metric("Punkte", f"{st.session_state.ls_score} / {st.session_state.ls_total}")
+    pct_ls = int(st.session_state.ls_score / st.session_state.ls_total * 100) if st.session_state.ls_total else 0
+    c2.metric("Genauigkeit", f"{pct_ls}%")
+    st.progress(
+        max(0.0, min(1.0, ls_seen / pool_size)) if pool_size else 0,
+        text=f"Runde {st.session_state.ls_round} · {ls_seen}/{pool_size} Sätze gehört",
+    )
+
+    st.divider()
+
+    # Big audio-only prompt — German text is hidden
+    st.markdown(
+        "<div style='font-size:1.1rem; font-weight:600; color:#cdd6f4; "
+        "margin-bottom:10px;'>🎧 Höre zu und schreibe die englische Bedeutung:</div>",
+        unsafe_allow_html=True,
+    )
+
+    # Audio player (German text deliberately NOT shown)
+    audio = tts_bytes(st.session_state.ls_german)
+    if audio:
+        col_audio, col_replay = st.columns([5, 1])
+        with col_audio:
+            st.audio(audio, format="audio/mp3")
+        with col_replay:
+            st.markdown(
+                "<div style='padding-top:8px; font-size:0.85rem; color:#585b70;'>▲ Drücke Play</div>",
+                unsafe_allow_html=True,
+            )
+    else:
+        st.warning("Audio nicht verfügbar — bitte Internetverbindung prüfen.")
+
+    st.markdown("<div style='height:8px'></div>", unsafe_allow_html=True)
+
+    if not st.session_state.ls_answered:
+        with st.form(key=f"ls_form_{ls_seen}", clear_on_submit=True):
+            user_ls = st.text_input(
+                "Deine Übersetzung auf Englisch:",
+                placeholder="Type the English meaning and press Enter…",
+            )
+            ls_submitted = st.form_submit_button("✅ Prüfen", type="primary", use_container_width=True)
+        if ls_submitted and user_ls.strip():
+            st.session_state.ls_total += 1
+            st.session_state.ls_user_input = user_ls.strip()
+            is_correct = normalise(user_ls) == normalise(st.session_state.ls_english)
+            if is_correct:
+                st.session_state.ls_score += 1
+                st.session_state.streak += 1
+            else:
+                st.session_state.streak = 0
+            st.session_state.ls_answered = True
+    else:
+        correct_en = st.session_state.ls_english
+        user_was = st.session_state.ls_user_input
+        is_correct = normalise(user_was) == normalise(correct_en)
+
+        # Reveal the German sentence now
+        st.markdown(
+            f"<div style='font-size:1.4rem; font-weight:700; padding:14px 20px; "
+            f"background:#1e1e2e; border-radius:12px; color:#89b4fa; "
+            f"text-align:center; margin-bottom:12px;'>"
+            f"🇩🇪 {st.session_state.ls_german}</div>",
+            unsafe_allow_html=True,
+        )
+
+        if is_correct:
+            st.markdown(
+                "<div style='padding:14px 18px; background:#1e1e2e; border-radius:12px; "
+                "border-left:5px solid #a6e3a1; margin-bottom:10px;'>"
+                "<span style='font-size:1.4rem;'>✅</span> "
+                f"<span style='color:#a6e3a1; font-size:1.1rem; font-weight:700;'>Richtig!</span> "
+                f"<span style='color:#cdd6f4;'><b>{correct_en}</b></span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+            if st.session_state.streak >= 3:
+                st.balloons()
+        else:
+            st.markdown(
+                "<div style='padding:14px 18px; background:#1e1e2e; border-radius:12px; "
+                "border-left:5px solid #f38ba8; margin-bottom:10px;'>"
+                "<span style='font-size:1.4rem;'>❌</span> "
+                f"<span style='color:#f38ba8; font-size:1.1rem; font-weight:700;'>Falsch.</span> "
+                f"Du hast geschrieben: <span style='color:#fab387;'>{user_was}</span><br>"
+                f"Richtige Antwort: <span style='color:#a6e3a1; font-weight:700;'>{correct_en}</span>"
+                "</div>",
+                unsafe_allow_html=True,
+            )
+
+        st.divider()
+        if st.session_state.ls_round_complete:
+            st.info(f"🎉 Runde abgeschlossen! Weiter mit Runde {st.session_state.ls_round}…")
+
+        with st.form(key=f"ls_next_form_{ls_seen}"):
+            st.text_input("Drücke Enter für den nächsten Satz:", placeholder="Enter drücken…",
+                          label_visibility="collapsed", key="ls_next_dummy")
+            ls_next = st.form_submit_button("➡️ Nächster Satz", type="primary", use_container_width=True)
+        if ls_next:
+            st.session_state.ls_german = None
+            load_ls(ls_pool, ls_chapter)
