@@ -1318,9 +1318,10 @@ def init_session():
         "mc_question": None, "mc_correct": None, "mc_options": [],
         "mc_deck": [], "mc_round": 1,
         "mc_active_chapter": None, "mc_round_complete": False,
+        "mc_revealed": False,
         # tile tab
         "tl_score": 0, "tl_total": 0,
-        "tl_answered": False,
+        "tl_answered": False, "tl_revealed": False,
         "tl_question": None, "tl_correct": None,
         "tl_deck": [], "tl_round": 1,
         "tl_active_chapter": None, "tl_round_complete": False,
@@ -1333,14 +1334,14 @@ def init_session():
         "gt_english": "", "gt_user_input": "",
         # pdf typing tab (German shown → type English)
         "tp_score": 0, "tp_total": 0,
-        "tp_answered": False,
+        "tp_answered": False, "tp_revealed": False,
         "tp_german": None, "tp_english": None,
         "tp_user_input": "",
         "tp_deck": [], "tp_round": 1,
         "tp_active_chapter": None, "tp_round_complete": False,
         # listening tab (audio only → type English)
         "ls_score": 0, "ls_total": 0,
-        "ls_answered": False,
+        "ls_answered": False, "ls_revealed": False,
         "ls_german": None, "ls_english": None,
         "ls_user_input": "",
         "ls_deck": [], "ls_round": 1,
@@ -1375,6 +1376,7 @@ def load_mc(pool, chapter):
     st.session_state.mc_options = opts
     st.session_state.mc_answered = False
     st.session_state.mc_selected = None
+    st.session_state.mc_revealed = False
 
 
 def get_tile_pool(chapter: str) -> dict:
@@ -1404,6 +1406,7 @@ def load_tile(tile_pool, chapter):
     st.session_state.tl_question = q
     st.session_state.tl_correct = c
     st.session_state.tl_answered = False
+    st.session_state.tl_revealed = False
     st.session_state.tiles_bank = make_tiles(c)
     st.session_state.tiles_chosen = []
 
@@ -1434,6 +1437,7 @@ def load_tp(pdf_pool, chapter):
     st.session_state.tp_german = word
     st.session_state.tp_english = pdf_pool[word]
     st.session_state.tp_answered = False
+    st.session_state.tp_revealed = False
     st.session_state.tp_user_input = ""
 
 
@@ -1456,6 +1460,7 @@ def load_ls(pdf_pool, chapter):
     st.session_state.ls_german = word
     st.session_state.ls_english = pdf_pool[word]
     st.session_state.ls_answered = False
+    st.session_state.ls_revealed = False
     st.session_state.ls_user_input = ""
 
 
@@ -1533,10 +1538,18 @@ if active_tab == "📋 Vokabelquiz":
                 st.rerun()
 
     if not st.session_state.mc_answered:
-        if st.button("⏭️ Überspringen", use_container_width=True, key="mc_skip"):
-            st.session_state.mc_question = None
-            load_mc(pool, chapter)
-            st.rerun()
+        btn_col1, btn_col2 = st.columns(2)
+        with btn_col1:
+            if st.button("👁️ Antwort zeigen", use_container_width=True, key="mc_reveal"):
+                st.session_state.mc_revealed = True
+        with btn_col2:
+            if st.button("⏭️ Überspringen", use_container_width=True, key="mc_skip"):
+                st.session_state.mc_question = None
+                st.session_state.mc_revealed = False
+                load_mc(pool, chapter)
+                st.rerun()
+        if st.session_state.mc_revealed:
+            st.info(f"💡 Antwort: **{st.session_state.mc_correct}**")
 
     if st.session_state.mc_answered:
         if st.session_state.mc_selected == st.session_state.mc_correct:
@@ -1659,6 +1672,19 @@ if active_tab == "🔤 Wörter sortieren":
                         st.rerun()
 
         st.markdown("")
+        rev_col, skip2_col = st.columns(2)
+        with rev_col:
+            if st.button("👁️ Antwort zeigen", use_container_width=True, key="tl_reveal"):
+                st.session_state.tl_revealed = True
+        with skip2_col:
+            if st.button("⏭️ Überspringen", use_container_width=True, key="tl_skip2"):
+                st.session_state.tl_question = None
+                st.session_state.tl_revealed = False
+                load_tile(tile_pool, chapter)
+                st.rerun()
+        if st.session_state.tl_revealed:
+            st.info(f"💡 Antwort: **{st.session_state.tl_correct}**")
+
         check_col, reset_col, skip_col = st.columns([3, 1, 1])
         with check_col:
             if st.button("✔️ Überprüfen", type="primary", use_container_width=True,
@@ -1679,10 +1705,10 @@ if active_tab == "🔤 Wörter sortieren":
                 st.session_state.tiles_chosen = []
                 st.rerun()
         with skip_col:
-            if st.button("⏭️", use_container_width=True, key="tl_skip",
-                         help="Überspringen"):
-                st.session_state.tl_question = None
-                load_tile(tile_pool, chapter)
+            if st.button("🔁", use_container_width=True, key="tl_skip",
+                         help="Neu mischen"):
+                st.session_state.tiles_bank = make_tiles(st.session_state.tl_correct)
+                st.session_state.tiles_chosen = []
                 st.rerun()
 
     if st.session_state.tl_answered:
@@ -1873,13 +1899,20 @@ if active_tab == "🖊️ Deutsch → Englisch":
                 "Deine Übersetzung auf Englisch:",
                 placeholder="Type your English translation and press Enter…",
             )
-            fc1, fc2 = st.columns([4, 1])
+            fc1, fc2, fc3 = st.columns([4, 1, 1])
             with fc1:
                 tp_submitted = st.form_submit_button("✅ Prüfen", type="primary", use_container_width=True)
             with fc2:
-                tp_skip = st.form_submit_button("⏭️ Skip", use_container_width=True)
+                tp_reveal = st.form_submit_button("👁️", use_container_width=True, help="Antwort zeigen")
+            with fc3:
+                tp_skip = st.form_submit_button("⏭️", use_container_width=True, help="Überspringen")
+        if tp_reveal:
+            st.session_state.tp_revealed = True
+        if st.session_state.tp_revealed:
+            st.info(f"💡 Antwort: **{st.session_state.tp_english}**")
         if tp_skip:
             st.session_state.tp_german = None
+            st.session_state.tp_revealed = False
             load_tp(pdf_pool, tp_chapter)
         if tp_submitted and user_tp.strip():
             st.session_state.tp_total += 1
@@ -2008,13 +2041,23 @@ if active_tab == "🎧 Hören & Schreiben":
                 "Deine Übersetzung auf Englisch:",
                 placeholder="Type the English meaning and press Enter…",
             )
-            lc1, lc2 = st.columns([4, 1])
+            lc1, lc2, lc3 = st.columns([4, 1, 1])
             with lc1:
                 ls_submitted = st.form_submit_button("✅ Prüfen", type="primary", use_container_width=True)
             with lc2:
-                ls_skip = st.form_submit_button("⏭️ Skip", use_container_width=True)
+                ls_reveal = st.form_submit_button("👁️", use_container_width=True, help="Antwort zeigen")
+            with lc3:
+                ls_skip = st.form_submit_button("⏭️", use_container_width=True, help="Überspringen")
+        if ls_reveal:
+            st.session_state.ls_revealed = True
+        if st.session_state.ls_revealed:
+            st.info(
+                f"💡 🇩🇪 **{st.session_state.ls_german}**  \n"
+                f"🇬🇧 **{st.session_state.ls_english}**"
+            )
         if ls_skip:
             st.session_state.ls_german = None
+            st.session_state.ls_revealed = False
             load_ls(ls_pool, ls_chapter)
         if ls_submitted and user_ls.strip():
             st.session_state.ls_total += 1
