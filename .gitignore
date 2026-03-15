@@ -1,0 +1,5 @@
+*.pdf
+a1_vocabulary_04.03.2026
+__pycache__/
+*.pyc
+.DS_Store
