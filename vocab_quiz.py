@@ -1532,6 +1532,12 @@ if active_tab == "📋 Vokabelquiz":
                     st.session_state.streak = 0
                 st.rerun()
 
+    if not st.session_state.mc_answered:
+        if st.button("⏭️ Überspringen", use_container_width=True, key="mc_skip"):
+            st.session_state.mc_question = None
+            load_mc(pool, chapter)
+            st.rerun()
+
     if st.session_state.mc_answered:
         if st.session_state.mc_selected == st.session_state.mc_correct:
             st.success(f"✅ Richtig!  **{st.session_state.mc_correct}**")
@@ -1653,7 +1659,7 @@ if active_tab == "🔤 Wörter sortieren":
                         st.rerun()
 
         st.markdown("")
-        check_col, reset_col = st.columns([2, 1])
+        check_col, reset_col, skip_col = st.columns([3, 1, 1])
         with check_col:
             if st.button("✔️ Überprüfen", type="primary", use_container_width=True,
                          disabled=not st.session_state.tiles_chosen, key="tl_check"):
@@ -1667,9 +1673,16 @@ if active_tab == "🔤 Wörter sortieren":
                     st.session_state.streak = 0
                 st.rerun()
         with reset_col:
-            if st.button("🔄 Zurücksetzen", use_container_width=True, key="tl_reset"):
+            if st.button("🔄", use_container_width=True, key="tl_reset",
+                         help="Zurücksetzen"):
                 st.session_state.tiles_bank = make_tiles(st.session_state.tl_correct)
                 st.session_state.tiles_chosen = []
+                st.rerun()
+        with skip_col:
+            if st.button("⏭️", use_container_width=True, key="tl_skip",
+                         help="Überspringen"):
+                st.session_state.tl_question = None
+                load_tile(tile_pool, chapter)
                 st.rerun()
 
     if st.session_state.tl_answered:
@@ -1860,7 +1873,14 @@ if active_tab == "🖊️ Deutsch → Englisch":
                 "Deine Übersetzung auf Englisch:",
                 placeholder="Type your English translation and press Enter…",
             )
-            tp_submitted = st.form_submit_button("✅ Prüfen", type="primary", use_container_width=True)
+            fc1, fc2 = st.columns([4, 1])
+            with fc1:
+                tp_submitted = st.form_submit_button("✅ Prüfen", type="primary", use_container_width=True)
+            with fc2:
+                tp_skip = st.form_submit_button("⏭️ Skip", use_container_width=True)
+        if tp_skip:
+            st.session_state.tp_german = None
+            load_tp(pdf_pool, tp_chapter)
         if tp_submitted and user_tp.strip():
             st.session_state.tp_total += 1
             st.session_state.tp_user_input = user_tp.strip()
@@ -1988,7 +2008,14 @@ if active_tab == "🎧 Hören & Schreiben":
                 "Deine Übersetzung auf Englisch:",
                 placeholder="Type the English meaning and press Enter…",
             )
-            ls_submitted = st.form_submit_button("✅ Prüfen", type="primary", use_container_width=True)
+            lc1, lc2 = st.columns([4, 1])
+            with lc1:
+                ls_submitted = st.form_submit_button("✅ Prüfen", type="primary", use_container_width=True)
+            with lc2:
+                ls_skip = st.form_submit_button("⏭️ Skip", use_container_width=True)
+        if ls_skip:
+            st.session_state.ls_german = None
+            load_ls(ls_pool, ls_chapter)
         if ls_submitted and user_ls.strip():
             st.session_state.ls_total += 1
             st.session_state.ls_user_input = user_ls.strip()
