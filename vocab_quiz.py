@@ -1865,6 +1865,7 @@ def init_session():
         "wq_question": None, "wq_correct": None, "wq_options": [],
         "wq_deck": [], "wq_round": 1,
         "wq_active_chapter": None, "wq_round_complete": False,
+        "wq_mastered": set(),   # words answered correctly on first try
         # navigation
         "active_tab": "📋 Vokabelquiz",
     }
@@ -1945,24 +1946,39 @@ def get_wortschatz_pool(chapter: str) -> dict:
 
 
 def load_wq(pool, chapter):
-    """Load a 3-option multiple-choice question from the Wortschatz pool."""
+    """Load a 3-option MC question; skip mastered words (correct on first try)."""
     if chapter != st.session_state.wq_active_chapter:
-        st.session_state.wq_deck = build_deck(pool)
+        st.session_state.wq_mastered = set()
+        st.session_state.wq_deck = []
         st.session_state.wq_round = 1
         st.session_state.wq_active_chapter = chapter
         st.session_state.wq_round_complete = False
         st.session_state.wq_question = None
+
     if st.session_state.wq_question is not None:
         return
+
+    # Only words not yet mastered
+    unmastered = {k: v for k, v in pool.items() if k not in st.session_state.wq_mastered}
+    if not unmastered:
+        return  # all done — handled in render
+
+    # Refill deck from unmastered words if empty
     if not st.session_state.wq_deck:
-        st.session_state.wq_deck = build_deck(pool)
+        st.session_state.wq_deck = build_deck(unmastered)
         st.session_state.wq_round += 1
         st.session_state.wq_round_complete = True
     else:
         st.session_state.wq_round_complete = False
+
+    # Skip any mastered words that may have lingered in deck
+    while st.session_state.wq_deck and st.session_state.wq_deck[-1] in st.session_state.wq_mastered:
+        st.session_state.wq_deck.pop()
+    if not st.session_state.wq_deck:
+        return
+
     word = st.session_state.wq_deck.pop()
     correct = pool[word]
-    # Pick 2 random wrong answers from the pool
     others = [v for k, v in pool.items() if k != word and v != correct]
     distractors = random.sample(others, min(2, len(others)))
     opts = distractors + [correct]
@@ -2711,17 +2727,41 @@ if active_tab == "📚 Wortschatz Quiz":
     load_wq(wq_pool, wq_chapter)
 
     pool_size = len(wq_pool)
-    wq_seen = pool_size - len(st.session_state.wq_deck)
-    c1, c2 = st.columns(2)
+    mastered_count = len(st.session_state.wq_mastered)
+    remaining = pool_size - mastered_count
+
+    c1, c2, c3 = st.columns(3)
     c1.metric("Punkte", f"{st.session_state.wq_score} / {st.session_state.wq_total}")
     pct_wq = int(st.session_state.wq_score / st.session_state.wq_total * 100) if st.session_state.wq_total else 0
     c2.metric("Genauigkeit", f"{pct_wq}%")
+    c3.metric("✅ Gelernt", f"{mastered_count} / {pool_size}")
     st.progress(
-        max(0.0, min(1.0, wq_seen / pool_size)) if pool_size else 0,
-        text=f"Runde {st.session_state.wq_round} · {wq_seen}/{pool_size} Wörter gesehen",
+        max(0.0, min(1.0, mastered_count / pool_size)) if pool_size else 0,
+        text=f"{mastered_count}/{pool_size} Wörter gemeistert · noch {remaining} übrig",
     )
 
     st.divider()
+
+    # All words mastered — celebration screen
+    if remaining == 0:
+        st.balloons()
+        st.markdown(
+            "<div style='text-align:center; padding:40px 20px; background:#1e1e2e; "
+            "border-radius:16px; border:2px solid #a6e3a1;'>"
+            "<div style='font-size:3rem;'>🎉</div>"
+            "<div style='font-size:1.6rem; font-weight:800; color:#a6e3a1; margin:10px 0;'>"
+            "Alle Wörter gemeistert!</div>"
+            f"<div style='color:#cdd6f4;'>Du hast alle <b>{pool_size}</b> Wörter beim ersten Versuch richtig beantwortet.</div>"
+            "</div>",
+            unsafe_allow_html=True,
+        )
+        if st.button("🔄 Neu starten", type="primary", use_container_width=True, key="wq_restart"):
+            st.session_state.wq_mastered = set()
+            st.session_state.wq_deck = []
+            st.session_state.wq_question = None
+            st.session_state.wq_active_chapter = None
+            st.rerun()
+        st.stop()
 
     # German word card
     st.markdown(
@@ -2760,6 +2800,9 @@ if active_tab == "📚 Wortschatz Quiz":
                 if opt == st.session_state.wq_correct:
                     st.session_state.wq_score += 1
                     st.session_state.streak += 1
+                    # Mark as mastered only if answer was not peeked at
+                    if not st.session_state.wq_revealed:
+                        st.session_state.wq_mastered.add(st.session_state.wq_question)
                 else:
                     st.session_state.streak = 0
                 st.rerun()
@@ -2780,16 +2823,21 @@ if active_tab == "📚 Wortschatz Quiz":
             st.info(f"💡 Antwort: **{st.session_state.wq_correct}**")
 
     if st.session_state.wq_answered:
+        word_is_mastered = st.session_state.wq_question in st.session_state.wq_mastered
         if st.session_state.wq_selected == st.session_state.wq_correct:
-            st.success("✅ Richtig!")
+            if word_is_mastered:
+                st.success(f"✅ Richtig! **Gelernt** — dieses Wort wird nicht mehr wiederholt. 🎓")
+            else:
+                st.success("✅ Richtig!")
             if st.session_state.streak >= 3:
                 st.balloons()
         else:
-            st.error(f"❌ Falsch. Richtige Antwort: **{st.session_state.wq_correct}**")
+            st.error(
+                f"❌ Falsch. Richtige Antwort: **{st.session_state.wq_correct}**  \n"
+                f"🔁 Dieses Wort kommt wieder vor."
+            )
 
         st.divider()
-        if st.session_state.wq_round_complete:
-            st.info(f"🎉 Runde abgeschlossen! Weiter mit Runde {st.session_state.wq_round}…")
         if st.button("➡️ Nächstes Wort", type="primary", use_container_width=True, key="wq_next"):
             st.session_state.wq_question = None
             load_wq(wq_pool, wq_chapter)
