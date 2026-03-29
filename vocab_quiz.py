@@ -1865,7 +1865,8 @@ def init_session():
         "wq_question": None, "wq_correct": None, "wq_options": [],
         "wq_deck": [], "wq_round": 1,
         "wq_active_chapter": None, "wq_round_complete": False,
-        "wq_mastered": set(),   # words answered correctly on first try
+        "wq_mastered": set(),       # words answered correctly on first try
+        "wq_options_visible": False,  # whether the 3 options are shown yet
         # navigation
         "active_tab": "📋 Vokabelquiz",
     }
@@ -1989,6 +1990,7 @@ def load_wq(pool, chapter):
     st.session_state.wq_answered = False
     st.session_state.wq_selected = None
     st.session_state.wq_revealed = False
+    st.session_state.wq_options_visible = False
 
 
 def load_tp(pdf_pool, chapter):
@@ -2773,54 +2775,73 @@ if active_tab == "📚 Wortschatz Quiz":
     )
     play_button(st.session_state.wq_question, key="wq_audio")
 
-    # 3 answer buttons (stacked vertically for clarity)
-    for i, opt in enumerate(st.session_state.wq_options):
-        if st.session_state.wq_answered:
-            if opt == st.session_state.wq_correct:
-                colour = "#a6e3a1"
-                icon = "✅ "
-            elif opt == st.session_state.wq_selected:
-                colour = "#f38ba8"
-                icon = "❌ "
-            else:
-                colour = "#585b70"
-                icon = ""
-            st.markdown(
-                f"<div style='padding:14px 20px; margin-bottom:8px; border-radius:12px; "
-                f"background:#1e1e2e; border:2px solid {colour}; "
-                f"color:{colour}; font-size:1.1rem; font-weight:600;'>"
-                f"{icon}{opt}</div>",
-                unsafe_allow_html=True,
-            )
-        else:
-            if st.button(opt, key=f"wq_{i}", use_container_width=True):
-                st.session_state.wq_selected = opt
-                st.session_state.wq_answered = True
-                st.session_state.wq_total += 1
-                if opt == st.session_state.wq_correct:
-                    st.session_state.wq_score += 1
-                    st.session_state.streak += 1
-                    # Mark as mastered only if answer was not peeked at
-                    if not st.session_state.wq_revealed:
-                        st.session_state.wq_mastered.add(st.session_state.wq_question)
-                else:
-                    st.session_state.streak = 0
+    # ── Options hidden until user asks to see them ────────────────────────────
+    if not st.session_state.wq_options_visible and not st.session_state.wq_answered:
+        st.markdown(
+            "<div style='text-align:center; color:#585b70; font-size:0.95rem; "
+            "margin-bottom:12px; font-style:italic;'>Denk kurz nach… dann klicke unten.</div>",
+            unsafe_allow_html=True,
+        )
+        oc1, oc2 = st.columns(2)
+        with oc1:
+            if st.button("🔽 Optionen anzeigen", type="primary", use_container_width=True, key="wq_show_opts"):
+                st.session_state.wq_options_visible = True
                 st.rerun()
-
-    if not st.session_state.wq_answered:
-        st.markdown("")
-        rc1, rc2 = st.columns(2)
-        with rc1:
-            if st.button("👁️ Antwort zeigen", use_container_width=True, key="wq_reveal"):
-                st.session_state.wq_revealed = True
-        with rc2:
+        with oc2:
             if st.button("⏭️ Überspringen", use_container_width=True, key="wq_skip"):
                 st.session_state.wq_question = None
-                st.session_state.wq_revealed = False
+                st.session_state.wq_options_visible = False
                 load_wq(wq_pool, wq_chapter)
                 st.rerun()
-        if st.session_state.wq_revealed:
-            st.info(f"💡 Antwort: **{st.session_state.wq_correct}**")
+
+    else:
+        # 3 answer buttons (stacked vertically for clarity)
+        for i, opt in enumerate(st.session_state.wq_options):
+            if st.session_state.wq_answered:
+                if opt == st.session_state.wq_correct:
+                    colour = "#a6e3a1"
+                    icon = "✅ "
+                elif opt == st.session_state.wq_selected:
+                    colour = "#f38ba8"
+                    icon = "❌ "
+                else:
+                    colour = "#585b70"
+                    icon = ""
+                st.markdown(
+                    f"<div style='padding:14px 20px; margin-bottom:8px; border-radius:12px; "
+                    f"background:#1e1e2e; border:2px solid {colour}; "
+                    f"color:{colour}; font-size:1.1rem; font-weight:600;'>"
+                    f"{icon}{opt}</div>",
+                    unsafe_allow_html=True,
+                )
+            else:
+                if st.button(opt, key=f"wq_{i}", use_container_width=True):
+                    st.session_state.wq_selected = opt
+                    st.session_state.wq_answered = True
+                    st.session_state.wq_total += 1
+                    if opt == st.session_state.wq_correct:
+                        st.session_state.wq_score += 1
+                        st.session_state.streak += 1
+                        if not st.session_state.wq_revealed:
+                            st.session_state.wq_mastered.add(st.session_state.wq_question)
+                    else:
+                        st.session_state.streak = 0
+                    st.rerun()
+
+        if not st.session_state.wq_answered:
+            st.markdown("")
+            rc1, rc2 = st.columns(2)
+            with rc1:
+                if st.button("👁️ Antwort zeigen", use_container_width=True, key="wq_reveal"):
+                    st.session_state.wq_revealed = True
+            with rc2:
+                if st.button("⏭️ Überspringen", use_container_width=True, key="wq_skip2"):
+                    st.session_state.wq_question = None
+                    st.session_state.wq_options_visible = False
+                    load_wq(wq_pool, wq_chapter)
+                    st.rerun()
+            if st.session_state.wq_revealed:
+                st.info(f"💡 Antwort: **{st.session_state.wq_correct}**")
 
     if st.session_state.wq_answered:
         word_is_mastered = st.session_state.wq_question in st.session_state.wq_mastered
