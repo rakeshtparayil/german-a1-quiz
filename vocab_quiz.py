@@ -2826,7 +2826,7 @@ if active_tab == "📚 Wortschatz Quiz":
         word_is_mastered = st.session_state.wq_question in st.session_state.wq_mastered
         if st.session_state.wq_selected == st.session_state.wq_correct:
             if word_is_mastered:
-                st.success(f"✅ Richtig! **Gelernt** — dieses Wort wird nicht mehr wiederholt. 🎓")
+                st.success("✅ Richtig! **Gelernt** — dieses Wort wird nicht mehr wiederholt. 🎓")
             else:
                 st.success("✅ Richtig!")
             if st.session_state.streak >= 3:
@@ -2834,11 +2834,24 @@ if active_tab == "📚 Wortschatz Quiz":
         else:
             st.error(
                 f"❌ Falsch. Richtige Antwort: **{st.session_state.wq_correct}**  \n"
-                f"🔁 Dieses Wort kommt wieder vor."
+                "🔁 Dieses Wort kommt wieder vor."
             )
 
         st.divider()
-        if st.button("➡️ Nächstes Wort", type="primary", use_container_width=True, key="wq_next"):
-            st.session_state.wq_question = None
-            load_wq(wq_pool, wq_chapter)
-            st.rerun()
+        btn1, btn2 = st.columns([3, 2])
+        with btn1:
+            if st.button("➡️ Nächstes Wort", type="primary", use_container_width=True, key="wq_next"):
+                st.session_state.wq_question = None
+                load_wq(wq_pool, wq_chapter)
+                st.rerun()
+        with btn2:
+            lbl = "🔁 Nochmal üben" if word_is_mastered else "✅ Als gelernt markieren"
+            if st.button(lbl, use_container_width=True, key="wq_toggle"):
+                if word_is_mastered:
+                    # Un-master: put back into deck
+                    st.session_state.wq_mastered.discard(st.session_state.wq_question)
+                    st.session_state.wq_deck.insert(0, st.session_state.wq_question)
+                else:
+                    # Force-master: remove from deck even if wrong/peeked
+                    st.session_state.wq_mastered.add(st.session_state.wq_question)
+                st.rerun()
