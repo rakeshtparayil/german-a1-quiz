@@ -1859,6 +1859,12 @@ def init_session():
         "ls_user_input": "",
         "ls_deck": [], "ls_round": 1,
         "ls_active_chapter": None, "ls_round_complete": False,
+        # wortschatz 3-option quiz
+        "wq_score": 0, "wq_total": 0,
+        "wq_answered": False, "wq_selected": None, "wq_revealed": False,
+        "wq_question": None, "wq_correct": None, "wq_options": [],
+        "wq_deck": [], "wq_round": 1,
+        "wq_active_chapter": None, "wq_round_complete": False,
         # navigation
         "active_tab": "📋 Vokabelquiz",
     }
@@ -1938,6 +1944,37 @@ def get_wortschatz_pool(chapter: str) -> dict:
     return WORTSCHATZ_BY_CHAPTER.get(chapter, ALL_WORTSCHATZ)
 
 
+def load_wq(pool, chapter):
+    """Load a 3-option multiple-choice question from the Wortschatz pool."""
+    if chapter != st.session_state.wq_active_chapter:
+        st.session_state.wq_deck = build_deck(pool)
+        st.session_state.wq_round = 1
+        st.session_state.wq_active_chapter = chapter
+        st.session_state.wq_round_complete = False
+        st.session_state.wq_question = None
+    if st.session_state.wq_question is not None:
+        return
+    if not st.session_state.wq_deck:
+        st.session_state.wq_deck = build_deck(pool)
+        st.session_state.wq_round += 1
+        st.session_state.wq_round_complete = True
+    else:
+        st.session_state.wq_round_complete = False
+    word = st.session_state.wq_deck.pop()
+    correct = pool[word]
+    # Pick 2 random wrong answers from the pool
+    others = [v for k, v in pool.items() if k != word and v != correct]
+    distractors = random.sample(others, min(2, len(others)))
+    opts = distractors + [correct]
+    random.shuffle(opts)
+    st.session_state.wq_question = word
+    st.session_state.wq_correct = correct
+    st.session_state.wq_options = opts
+    st.session_state.wq_answered = False
+    st.session_state.wq_selected = None
+    st.session_state.wq_revealed = False
+
+
 def load_tp(pdf_pool, chapter):
     if chapter != st.session_state.tp_active_chapter:
         st.session_state.tp_deck = build_deck(pdf_pool)
@@ -1999,7 +2036,7 @@ with st.sidebar:
     st.divider()
     active_tab = st.radio(
         "Modus",
-        ["📋 Vokabelquiz", "🔤 Wörter sortieren", "✏️ Grammatik tippen", "🖊️ Deutsch → Englisch", "🎧 Hören & Schreiben"],
+        ["📋 Vokabelquiz", "🔤 Wörter sortieren", "✏️ Grammatik tippen", "🖊️ Deutsch → Englisch", "🎧 Hören & Schreiben", "📚 Wortschatz Quiz"],
         key="active_tab",
     )
 
@@ -2658,3 +2695,102 @@ if active_tab == "🎧 Hören & Schreiben":
         if ls_next:
             st.session_state.ls_german = None
             load_ls(ls_pool, ls_chapter)
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# TAB 6 — Wortschatz Quiz: German word shown → pick 1 of 3 English options
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+if active_tab == "📚 Wortschatz Quiz":
+
+    wq_chapter = st.selectbox(
+        "Thema wählen",
+        WORTSCHATZ_CHAPTER_NAMES,
+        key="wq_chapter_select",
+    )
+
+    wq_pool = get_wortschatz_pool(wq_chapter)
+    load_wq(wq_pool, wq_chapter)
+
+    pool_size = len(wq_pool)
+    wq_seen = pool_size - len(st.session_state.wq_deck)
+    c1, c2 = st.columns(2)
+    c1.metric("Punkte", f"{st.session_state.wq_score} / {st.session_state.wq_total}")
+    pct_wq = int(st.session_state.wq_score / st.session_state.wq_total * 100) if st.session_state.wq_total else 0
+    c2.metric("Genauigkeit", f"{pct_wq}%")
+    st.progress(
+        max(0.0, min(1.0, wq_seen / pool_size)) if pool_size else 0,
+        text=f"Runde {st.session_state.wq_round} · {wq_seen}/{pool_size} Wörter gesehen",
+    )
+
+    st.divider()
+
+    # German word card
+    st.markdown(
+        f"<div style='font-size:2.2rem; font-weight:800; padding:22px 28px; "
+        f"background:#1e1e2e; border-radius:16px; color:#cdd6f4; "
+        f"text-align:center; margin-bottom:20px; letter-spacing:0.02em;'>"
+        f"{st.session_state.wq_question}</div>",
+        unsafe_allow_html=True,
+    )
+    play_button(st.session_state.wq_question, key="wq_audio")
+
+    # 3 answer buttons (stacked vertically for clarity)
+    for i, opt in enumerate(st.session_state.wq_options):
+        if st.session_state.wq_answered:
+            if opt == st.session_state.wq_correct:
+                colour = "#a6e3a1"
+                icon = "✅ "
+            elif opt == st.session_state.wq_selected:
+                colour = "#f38ba8"
+                icon = "❌ "
+            else:
+                colour = "#585b70"
+                icon = ""
+            st.markdown(
+                f"<div style='padding:14px 20px; margin-bottom:8px; border-radius:12px; "
+                f"background:#1e1e2e; border:2px solid {colour}; "
+                f"color:{colour}; font-size:1.1rem; font-weight:600;'>"
+                f"{icon}{opt}</div>",
+                unsafe_allow_html=True,
+            )
+        else:
+            if st.button(opt, key=f"wq_{i}", use_container_width=True):
+                st.session_state.wq_selected = opt
+                st.session_state.wq_answered = True
+                st.session_state.wq_total += 1
+                if opt == st.session_state.wq_correct:
+                    st.session_state.wq_score += 1
+                    st.session_state.streak += 1
+                else:
+                    st.session_state.streak = 0
+                st.rerun()
+
+    if not st.session_state.wq_answered:
+        st.markdown("")
+        rc1, rc2 = st.columns(2)
+        with rc1:
+            if st.button("👁️ Antwort zeigen", use_container_width=True, key="wq_reveal"):
+                st.session_state.wq_revealed = True
+        with rc2:
+            if st.button("⏭️ Überspringen", use_container_width=True, key="wq_skip"):
+                st.session_state.wq_question = None
+                st.session_state.wq_revealed = False
+                load_wq(wq_pool, wq_chapter)
+                st.rerun()
+        if st.session_state.wq_revealed:
+            st.info(f"💡 Antwort: **{st.session_state.wq_correct}**")
+
+    if st.session_state.wq_answered:
+        if st.session_state.wq_selected == st.session_state.wq_correct:
+            st.success("✅ Richtig!")
+            if st.session_state.streak >= 3:
+                st.balloons()
+        else:
+            st.error(f"❌ Falsch. Richtige Antwort: **{st.session_state.wq_correct}**")
+
+        st.divider()
+        if st.session_state.wq_round_complete:
+            st.info(f"🎉 Runde abgeschlossen! Weiter mit Runde {st.session_state.wq_round}…")
+        if st.button("➡️ Nächstes Wort", type="primary", use_container_width=True, key="wq_next"):
+            st.session_state.wq_question = None
+            load_wq(wq_pool, wq_chapter)
+            st.rerun()
