@@ -477,30 +477,47 @@ with st.sidebar:
             st.session_state.pop(k, None)
         st.rerun()
 
-    st.divider()
-    st.markdown("**Keyboard shortcuts**")
-    st.markdown("Use **Flip / Next** buttons below")
+    # skipped words panel
+    skipped: set = st.session_state.get("skipped", set())
+    if skipped:
+        st.divider()
+        st.markdown(f"**Known words: {len(skipped)}**")
+        if st.button("↩️ Restore all known words", use_container_width=True):
+            st.session_state.skipped = set()
+            for k in ["deck", "idx", "flipped", "seen"]:
+                st.session_state.pop(k, None)
+            st.rerun()
+        with st.expander("Show known words"):
+            for w in sorted(skipped):
+                st.markdown(f"- {w}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BUILD DECK
 # ─────────────────────────────────────────────────────────────────────────────
 def build_deck(topic: str, do_shuffle: bool) -> list[tuple[str, str, str]]:
-    """Return list of (german, english, topic_label) tuples."""
+    """Return list of (german, english, topic_label) tuples, excluding skipped words."""
+    skipped: set = st.session_state.get("skipped", set())
     items: list[tuple[str, str, str]] = []
     if topic == "✨ All Topics":
         for lbl, vocab in VOCAB.items():
             for de, en in vocab.items():
-                items.append((de, en, lbl))
+                if de not in skipped:
+                    items.append((de, en, lbl))
     else:
         for de, en in VOCAB[topic].items():
-            items.append((de, en, topic))
+            if de not in skipped:
+                items.append((de, en, topic))
     if do_shuffle:
         random.shuffle(items)
     return items
 
 
-# Rebuild deck when topic or shuffle changes
-topic_key = (st.session_state.get("topic", ""), st.session_state.get("shuffle", True))
+# Rebuild deck when topic, shuffle, or skipped set changes
+topic_key = (
+    st.session_state.get("topic", ""),
+    st.session_state.get("shuffle", True),
+    frozenset(st.session_state.get("skipped", set())),
+)
 if "deck" not in st.session_state or st.session_state.get("_last_key") != topic_key:
     st.session_state.deck = build_deck(
         st.session_state.get("topic", "✨ All Topics"),
@@ -510,6 +527,8 @@ if "deck" not in st.session_state or st.session_state.get("_last_key") != topic_
     st.session_state.flipped = False
     st.session_state.seen = set()
     st.session_state._last_key = topic_key
+    if "skipped" not in st.session_state:
+        st.session_state.skipped = set()
 
 deck: list[tuple[str, str, str]] = st.session_state.deck
 total = len(deck)
@@ -529,9 +548,11 @@ german, english, topic_label = deck[idx]
 # PROGRESS BAR
 # ─────────────────────────────────────────────────────────────────────────────
 pct = len(seen) / total
+n_skipped = len(st.session_state.get("skipped", set()))
+skip_text = f"&nbsp;·&nbsp; {n_skipped} known" if n_skipped else ""
 st.markdown(
     f"<div class='progress-text'>Card {idx + 1} of {total} &nbsp;·&nbsp; "
-    f"{len(seen)} seen &nbsp;·&nbsp; {int(pct*100)}% complete</div>",
+    f"{len(seen)} seen{skip_text} &nbsp;·&nbsp; {int(pct*100)}% complete</div>",
     unsafe_allow_html=True,
 )
 st.progress(pct)
@@ -567,7 +588,7 @@ else:
     )
 
 # ─────────────────────────────────────────────────────────────────────────────
-# BUTTONS
+# BUTTONS — row 1: navigation + flip
 # ─────────────────────────────────────────────────────────────────────────────
 b_prev, b_flip, b_next = st.columns([1, 2, 1])
 
@@ -597,6 +618,22 @@ with b_next:
             if st.session_state.get("shuffle", True):
                 random.shuffle(st.session_state.deck)
             st.rerun()
+
+# ── row 2: "I know this" ──────────────────────────────────────────────────────
+st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
+if st.button(
+    "✅ I know this — don't show again",
+    use_container_width=True,
+    help="Removes this word from the deck permanently (until you restore it from the sidebar)",
+):
+    st.session_state.skipped.add(german)
+    # advance to next card (or stay at boundary)
+    new_idx = min(idx, total - 2)  # total will shrink by 1 after rebuild
+    st.session_state.idx = max(new_idx, 0)
+    st.session_state.flipped = False
+    # force deck rebuild by clearing it
+    st.session_state.pop("deck", None)
+    st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
 # DECK COMPLETE BANNER
