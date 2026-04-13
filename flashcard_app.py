@@ -492,7 +492,7 @@ with st.sidebar:
 
     st.divider()
     if st.button("🔄 Restart deck", use_container_width=True):
-        for k in ["deck", "idx", "flipped", "seen"]:
+        for k in ["deck", "idx", "flipped"]:
             st.session_state.pop(k, None)
         st.rerun()
 
@@ -506,7 +506,7 @@ with st.sidebar:
         if st.button("↩️ Restore ALL known words", use_container_width=True):
             st.session_state.known = set()
             save_known(set())
-            for k in ["deck", "idx", "flipped", "seen"]:
+            for k in ["deck", "idx", "flipped"]:
                 st.session_state.pop(k, None)
             st.rerun()
         with st.expander(f"Show {len(known)} known words"):
@@ -555,7 +555,6 @@ if "deck" not in st.session_state or st.session_state.get("_last_key") != topic_
     )
     st.session_state.idx = 0
     st.session_state.flipped = False
-    st.session_state.seen = set()
     st.session_state._last_key = topic_key
     if "known" not in st.session_state:
         st.session_state.known = load_known()
@@ -569,20 +568,20 @@ if total == 0:
 
 idx: int = st.session_state.idx
 flipped: bool = st.session_state.flipped
-seen: set = st.session_state.seen
-seen.add(idx)
 
 german, english, topic_label = deck[idx]
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PROGRESS BAR
 # ─────────────────────────────────────────────────────────────────────────────
-pct = len(seen) / total
+# idx is 0-based; cards seen = idx + 1 (current card counts as seen)
+cards_seen = idx + 1
+pct = cards_seen / total
 n_known = len(st.session_state.get("known", set()))
-skip_text = f"&nbsp;·&nbsp; {n_known} known" if n_known else ""
+known_text = f"&nbsp;·&nbsp; {n_known} known" if n_known else ""
 st.markdown(
-    f"<div class='progress-text'>Card {idx + 1} of {total} &nbsp;·&nbsp; "
-    f"{len(seen)} seen{skip_text} &nbsp;·&nbsp; {int(pct*100)}% complete</div>",
+    f"<div class='progress-text'>Card {cards_seen} of {total}"
+    f"{known_text} &nbsp;·&nbsp; {pct:.0%} complete</div>",
     unsafe_allow_html=True,
 )
 st.progress(pct)
@@ -644,7 +643,6 @@ with b_next:
         if st.button("Restart ✅", use_container_width=True, type="primary"):
             st.session_state.idx = 0
             st.session_state.flipped = False
-            st.session_state.seen = set()
             if st.session_state.get("shuffle", True):
                 random.shuffle(st.session_state.deck)
             st.rerun()
@@ -667,7 +665,7 @@ if st.button(
 # ─────────────────────────────────────────────────────────────────────────────
 # DECK COMPLETE BANNER
 # ─────────────────────────────────────────────────────────────────────────────
-if len(seen) == total:
+if idx == total - 1:
     st.divider()
     st.success(f"You've seen all {total} cards! Press **Restart** to go again.")
     st.balloons()
