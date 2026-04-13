@@ -1,5 +1,24 @@
 import streamlit as st
 import random
+import json
+from pathlib import Path
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PERSISTENT KNOWN WORDS  (saved to disk — survives restarts)
+# ─────────────────────────────────────────────────────────────────────────────
+KNOWN_FILE = Path(__file__).parent / "known_words.json"
+
+def load_known() -> set:
+    if KNOWN_FILE.exists():
+        try:
+            return set(json.loads(KNOWN_FILE.read_text(encoding="utf-8")))
+        except Exception:
+            return set()
+    return set()
+
+def save_known(known: set) -> None:
+    KNOWN_FILE.write_text(json.dumps(sorted(known), ensure_ascii=False, indent=2), encoding="utf-8")
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # VOCABULARY  (German → English, organised by topic)
@@ -477,46 +496,57 @@ with st.sidebar:
             st.session_state.pop(k, None)
         st.rerun()
 
-    # skipped words panel
-    skipped: set = st.session_state.get("skipped", set())
-    if skipped:
-        st.divider()
-        st.markdown(f"**Known words: {len(skipped)}**")
-        if st.button("↩️ Restore all known words", use_container_width=True):
-            st.session_state.skipped = set()
+    # ── Known words panel ────────────────────────────────────────────────────
+    known: set = st.session_state.get("known", load_known())
+    st.session_state.known = known          # ensure it's in state after load
+
+    st.divider()
+    st.markdown(f"**Known words: {len(known)}** / {sum(len(v) for v in VOCAB.values())}")
+    if known:
+        if st.button("↩️ Restore ALL known words", use_container_width=True):
+            st.session_state.known = set()
+            save_known(set())
             for k in ["deck", "idx", "flipped", "seen"]:
                 st.session_state.pop(k, None)
             st.rerun()
-        with st.expander("Show known words"):
-            for w in sorted(skipped):
-                st.markdown(f"- {w}")
+        with st.expander(f"Show {len(known)} known words"):
+            for w in sorted(known):
+                col_w, col_btn = st.columns([4, 1])
+                col_w.markdown(f"**{w}**")
+                if col_btn.button("↩️", key=f"restore_{w}", help=f"Restore '{w}'"):
+                    st.session_state.known.discard(w)
+                    save_known(st.session_state.known)
+                    st.session_state.pop("deck", None)
+                    st.rerun()
+    else:
+        st.caption("No known words yet — mark easy cards below.")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # BUILD DECK
 # ─────────────────────────────────────────────────────────────────────────────
 def build_deck(topic: str, do_shuffle: bool) -> list[tuple[str, str, str]]:
-    """Return list of (german, english, topic_label) tuples, excluding skipped words."""
-    skipped: set = st.session_state.get("skipped", set())
+    """Return list of (german, english, topic_label) tuples, excluding known words."""
+    known: set = st.session_state.get("known", set())
     items: list[tuple[str, str, str]] = []
     if topic == "✨ All Topics":
         for lbl, vocab in VOCAB.items():
             for de, en in vocab.items():
-                if de not in skipped:
+                if de not in known:
                     items.append((de, en, lbl))
     else:
         for de, en in VOCAB[topic].items():
-            if de not in skipped:
+            if de not in known:
                 items.append((de, en, topic))
     if do_shuffle:
         random.shuffle(items)
     return items
 
 
-# Rebuild deck when topic, shuffle, or skipped set changes
+# Rebuild deck when topic, shuffle, or known set changes
 topic_key = (
     st.session_state.get("topic", ""),
     st.session_state.get("shuffle", True),
-    frozenset(st.session_state.get("skipped", set())),
+    frozenset(st.session_state.get("known", set())),
 )
 if "deck" not in st.session_state or st.session_state.get("_last_key") != topic_key:
     st.session_state.deck = build_deck(
@@ -527,8 +557,8 @@ if "deck" not in st.session_state or st.session_state.get("_last_key") != topic_
     st.session_state.flipped = False
     st.session_state.seen = set()
     st.session_state._last_key = topic_key
-    if "skipped" not in st.session_state:
-        st.session_state.skipped = set()
+    if "known" not in st.session_state:
+        st.session_state.known = load_known()
 
 deck: list[tuple[str, str, str]] = st.session_state.deck
 total = len(deck)
@@ -548,8 +578,8 @@ german, english, topic_label = deck[idx]
 # PROGRESS BAR
 # ─────────────────────────────────────────────────────────────────────────────
 pct = len(seen) / total
-n_skipped = len(st.session_state.get("skipped", set()))
-skip_text = f"&nbsp;·&nbsp; {n_skipped} known" if n_skipped else ""
+n_known = len(st.session_state.get("known", set()))
+skip_text = f"&nbsp;·&nbsp; {n_known} known" if n_known else ""
 st.markdown(
     f"<div class='progress-text'>Card {idx + 1} of {total} &nbsp;·&nbsp; "
     f"{len(seen)} seen{skip_text} &nbsp;·&nbsp; {int(pct*100)}% complete</div>",
@@ -624,15 +654,14 @@ st.markdown("<div style='height:6px'></div>", unsafe_allow_html=True)
 if st.button(
     "✅ I know this — don't show again",
     use_container_width=True,
-    help="Removes this word from the deck permanently (until you restore it from the sidebar)",
+    help="Saves this word as 'known'. It won't appear again — even after a restart. Restore anytime from the sidebar.",
 ):
-    st.session_state.skipped.add(german)
-    # advance to next card (or stay at boundary)
-    new_idx = min(idx, total - 2)  # total will shrink by 1 after rebuild
+    st.session_state.known.add(german)
+    save_known(st.session_state.known)          # persist to disk
+    new_idx = min(idx, total - 2)               # total shrinks by 1 after rebuild
     st.session_state.idx = max(new_idx, 0)
     st.session_state.flipped = False
-    # force deck rebuild by clearing it
-    st.session_state.pop("deck", None)
+    st.session_state.pop("deck", None)          # force deck rebuild
     st.rerun()
 
 # ─────────────────────────────────────────────────────────────────────────────
